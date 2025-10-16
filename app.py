@@ -15,6 +15,33 @@ sessions = {}
 war_room_access = {}
 rate_limits = {}
 
+# Session expiration time (10 minutes)
+SESSION_EXPIRY = 600
+
+def cleanup_expired_sessions():
+    """Remove expired sessions"""
+    current_time = time.time()
+    expired = [token for token, data in sessions.items() 
+               if current_time - data['timestamp'] > SESSION_EXPIRY]
+    for token in expired:
+        del sessions[token]
+
+def validate_session(token):
+    """Validate session token and check expiration"""
+    cleanup_expired_sessions()
+    
+    if not token or token not in sessions:
+        return False, "Invalid or missing session token"
+    
+    session_data = sessions[token]
+    current_time = time.time()
+    
+    if current_time - session_data['timestamp'] > SESSION_EXPIRY:
+        del sessions[token]
+        return False, "Session expired. Please start from Layer 1"
+    
+    return True, session_data
+
 def check_rate_limit(ip):
     current_time = time.time()
     if ip not in rate_limits:
@@ -122,7 +149,8 @@ def index():
                 ✅ Multi-layer authentication active<br>
                 ✅ WAF protection enabled<br>
                 ✅ Custom request validation implemented<br>
-                ⚠️ Standard HTTP methods restricted
+                ⚠️ Standard HTTP methods restricted<br>
+                ⏰ Session timeout: 10 minutes
             </div>
         </div>
 
@@ -131,7 +159,7 @@ def index():
             <strong>⚠️ SECURITY NOTICE</strong><br>
             This system only responds to authenticated requests with proper headers.<br>
             Standard browser requests will be rejected.<br>
-            
+            Sessions expire after 10 minutes of inactivity.
         </div>
 
         <button onclick="testAccess()">TEST ACCESS</button>
@@ -190,12 +218,18 @@ def api_auth():
         }), 401)
         response.headers['X-SRH-Hint'] = 'When was SRH established?'
         return response
+    
     session_token = secrets.token_hex(16)
-    sessions[session_token] = {'layer': 1, 'timestamp': time.time()}
+    sessions[session_token] = {
+        'layer': 1, 
+        'timestamp': time.time()
+    }
+    
     response = make_response(jsonify({
         'success': True,
         'message': 'Layer 1 passed! Establishment verified.',
         'session_token': session_token,
+        'expires_in': '10 minutes',
         'next_layer': 'Leadership validation required',
         'hint': 'Use this X-Session-Token and send X-Beauty with X-SRH-Captain header to /api/validate '
     }))
@@ -208,18 +242,29 @@ def api_validate():
     ip = request.remote_addr
     if not check_rate_limit(ip):
         return jsonify({'error': 'Rate limit exceeded'}), 429
+    
     token = request.headers.get('X-Session-Token')
-    if not token or token not in sessions:
+    is_valid, result = validate_session(token)
+    
+    if not is_valid:
         return jsonify({
-            'error': 'Invalid or missing session token',
-            'hint': 'Complete Layer 1 first at /api/auth'
+            'error': 'Session validation failed',
+            'message': result,
+            'hint': 'Complete Layer 1 first at /api/auth or your session expired'
         }), 401
+    
+    session_data = result
+    if session_data['layer'] < 1:
+        return jsonify({
+            'error': 'Invalid session state',
+            'hint': 'Complete Layer 1 first'
+        }), 401
+    
     beauty = request.headers.get('X-Beauty')
     if not beauty or beauty.lower() != 'kavya':
         return jsonify({
             'error': 'Layer 2 failed',
             'message': 'Special header required',
-            'hint': 'Send X-Beauty: Beauty of SRH as head',
             'fake_flag': 'flag{st4nd4rd_m3th0ds_do_work_h3r3}'
         }), 405
     captain = request.headers.get('X-SRH-Captain')
@@ -227,12 +272,16 @@ def api_validate():
         return jsonify({
             'error': 'Layer 2 failed',
             'message': 'Captain verification required',
-            'hint': 'Who led SRH to their first title? First name only.'
+            'hint': 'The Captain who brought glory?'
         }), 401
+    
     sessions[token]['layer'] = 2
+    sessions[token]['timestamp'] = time.time()  # Refresh timestamp
+    
     response = make_response(jsonify({
         'success': True,
         'message': 'Layer 2 passed! Leadership verified.',
+        'expires_in': '10 minutes',
         'next_layer': 'Icon authentication required',
         'hint': 'Use the token to send X-Beauty along with X-SRH-Jersey and the token to /api/icon',
         'fake_flag': 'flag{w4rn3r_is_c0rr3ct_but_n0t_th3_fl4g}'
@@ -246,18 +295,29 @@ def api_icon():
     ip = request.remote_addr
     if not check_rate_limit(ip):
         return jsonify({'error': 'Rate limit exceeded'}), 429
+    
     token = request.headers.get('X-Session-Token')
-    if not token or token not in sessions or sessions[token]['layer'] < 2:
+    is_valid, result = validate_session(token)
+    
+    if not is_valid:
+        return jsonify({
+            'error': 'Session validation failed',
+            'message': result,
+            'hint': 'Your session may have expired. Start from Layer 1'
+        }), 401
+    
+    session_data = result
+    if session_data['layer'] < 2:
         return jsonify({
             'error': 'Access denied',
             'hint': 'Complete previous layers first'
         }), 401
+    
     beauty = request.headers.get('X-Beauty')
     if not beauty or beauty.lower() != 'kavya':
         return jsonify({
             'error': 'Layer 3 failed',
             'message': 'Special header required',
-            'hint': 'Send X-Beauty: KAVYA as header',
             'fake_flag': 'flag{cl0s3_but_wr0ng_j3rs3y_numb3r}'
         }), 405
     jersey = request.headers.get('X-SRH-Jersey')
@@ -265,13 +325,17 @@ def api_icon():
         return jsonify({
             'error': 'Layer 3 failed',
             'message': 'Jersey number verification required',
-            'hint': 'Warner\'s iconic jersey number',
+            'hint': 'jersey number of dancer in the team',
             'fake_flag': 'flag{cl0s3_but_wr0ng_j3rs3y_numb3r}'
         }), 401
+    
     sessions[token]['layer'] = 3
+    sessions[token]['timestamp'] = time.time()  # Refresh timestamp
+    
     response = make_response(jsonify({
         'success': True,
         'message': 'Layer 3 passed! Icon verified.',
+        'expires_in': '10 minutes',
         'next_layer': 'Victory protocol required',
         'hint': 'Use Token to Send X-Beauty along with X-SRH-Victory to /api/protocol',
         'fake_flag': 'flag{31_is_c0rr3ct_but_st1ll_n0t_th3_r34l_fl4g}'
@@ -285,18 +349,29 @@ def api_protocol():
     ip = request.remote_addr
     if not check_rate_limit(ip):
         return jsonify({'error': 'Rate limit exceeded'}), 429
+    
     token = request.headers.get('X-Session-Token')
-    if not token or token not in sessions or sessions[token]['layer'] < 3:
+    is_valid, result = validate_session(token)
+    
+    if not is_valid:
+        return jsonify({
+            'error': 'Session validation failed',
+            'message': result,
+            'hint': 'Your session may have expired. Start from Layer 1'
+        }), 401
+    
+    session_data = result
+    if session_data['layer'] < 3:
         return jsonify({
             'error': 'Access denied',
             'hint': 'Complete previous layers first'
         }), 401
+    
     beauty = request.headers.get('X-Beauty')
     if not beauty or beauty.lower() != 'kavya':
         return jsonify({
             'error': 'Layer 4 failed',
             'message': 'Special header required',
-            'hint': 'Send X-Beauty: KAVYA as header',
             'fake_flag': 'flag{v1ct0ry_m3th0d_wr0ng_try_4g41n}'
         }), 405
     victory = request.headers.get('X-SRH-Victory')
@@ -307,12 +382,17 @@ def api_protocol():
             'hint': 'How many runs did SRH win by in IPL 2016?',
             'fake_flag': 'flag{v1ct0ry_m3th0d_wr0ng_try_4g41n}'
         }), 401
+    
     sessions[token]['layer'] = 4
+    sessions[token]['timestamp'] = time.time()  # Refresh timestamp
+    
     access_code = base64.b64encode(f"SRH2016{token}".encode()).decode()
+    
     response = make_response(jsonify({
         'success': True,
         'message': 'Layer 4 passed! All layers completed!',
         'access_code': access_code,
+        'expires_in': '10 minutes',
         'next_step': 'Use this access code in Cookie header as war_room_access',
         'endpoint': '/warroom/dashboard',
         'hint': 'Set Cookie: war_room_access=<access_code> and visit /warroom/dashboard',
@@ -336,19 +416,33 @@ def warroom_dashboard():
         if not decoded.startswith('SRH2016'):
             raise ValueError("Invalid code")
         token = decoded.replace('SRH2016', '')
-        if token not in sessions or sessions[token]['layer'] < 4:
-            raise ValueError("Invalid session")
-    except:
+        
+        # Validate session token
+        is_valid, result = validate_session(token)
+        if not is_valid:
+            return jsonify({
+                'error': 'Session expired or invalid',
+                'message': result,
+                'hint': 'Your session may have expired. Complete all layers again from /api/auth'
+            }), 401
+        
+        session_data = result
+        if session_data['layer'] < 4:
+            raise ValueError("Invalid session layer")
+            
+    except Exception as e:
         return jsonify({
             'error': 'Invalid access code',
             'fake_flag': 'flag{1nv4l1d_c00k13_try_4g41n}'
         }), 401
+    
     secret_param = request.args.get('query')
     if not secret_param:
         return jsonify({
             'success': True,
             'message': 'Welcome to War Room Dashboard',
             'status': 'Authenticated',
+            'session_valid': True,
             'fake_flag': 'flag{y0u_r34ch3d_d4shb04rd_but_n0_fl4g_h3r3}',
             'hint': 'The dashboard is just the entry point...',
             'hidden_hint': 'Try adding query. Maybe something orange? Dont forget the Cookie',
@@ -373,7 +467,7 @@ def warroom_dashboard():
         'clue': 'The prediction_key is the MD5 hash of "SRH2016Warner31"',
         'fake_flag': 'flag{s0_cl0s3_but_n0t_th3r3_y3t}'
     }))
-    response.headers['X-Vault-Hint'] = 'dont forget to include cookie, content-type, content-length'
+    response.headers['X-Vault-Hint'] = 'dont forget to include cookie'
     return response
 
 @app.route('/warroom/vault', methods=['GET', 'POST'])
@@ -381,6 +475,33 @@ def warroom_vault():
     access_code = request.cookies.get('war_room_access')
     if not access_code:
         return jsonify({'error': 'Access denied'}), 401
+    
+    # Validate the session in the cookie
+    try:
+        decoded = base64.b64decode(access_code).decode()
+        if not decoded.startswith('SRH2016'):
+            raise ValueError("Invalid code")
+        token = decoded.replace('SRH2016', '')
+        
+        # Validate session token
+        is_valid, result = validate_session(token)
+        if not is_valid:
+            return jsonify({
+                'error': 'Session expired or invalid',
+                'message': result,
+                'hint': 'Your session expired. Start from Layer 1 again'
+            }), 401
+        
+        session_data = result
+        if session_data['layer'] < 4:
+            raise ValueError("Invalid session layer")
+            
+    except Exception as e:
+        return jsonify({
+            'error': 'Invalid access code',
+            'message': str(e)
+        }), 401
+    
     if request.method != 'POST':
         return jsonify({
             'error': 'Method not allowed',
