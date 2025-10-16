@@ -149,7 +149,6 @@ def index():
                 ✅ Multi-layer authentication active<br>
                 ✅ WAF protection enabled<br>
                 ✅ Custom request validation implemented<br>
-                ⚠️ Standard HTTP methods restricted<br>
                 ⏰ Session timeout: 10 minutes
             </div>
         </div>
